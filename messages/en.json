@@ -1695,5 +1695,25 @@
       "reindexTooltip": "Re-embed all documents (e.g. after adding an embeddings key)",
       "loading": "Loading…"
     }
+  },
+  "WhatsAppErrors": {
+    "paymentRequired": "Meta is blocking business-initiated messages: this WhatsApp Business account has no valid payment method. Add one in Meta Business Manager and settle any outstanding balance.",
+    "tokenExpired": "The WhatsApp access token has expired or was revoked. Reconnect WhatsApp in Settings.",
+    "accountRestricted": "Meta has restricted this WhatsApp Business account for a policy violation. Check its status in Meta Business Manager.",
+    "rateLimited": "Too many messages sent at once. Wait a moment and try again.",
+    "pairRateLimited": "Too many messages sent to this contact in a short time. Wait before sending again.",
+    "outsideWindow": "More than 24 hours have passed since this contact last replied. Only a template message can reopen the conversation.",
+    "undeliverable": "WhatsApp could not deliver the message. The number may not be on WhatsApp, or the recipient's app may be out of date.",
+    "templateNotFound": "Meta has no approved template with that name in this language. Run Sync from Meta in Settings and check the language code.",
+    "templateParamCount": "The number of values does not match the variables this template declares. Fill in every variable.",
+    "templateParamFormat": "One of the template values has the wrong format. Check the media header and any URL button suffix.",
+    "templateTextTooLong": "The message exceeds WhatsApp's length limit once the variables are filled in. Use shorter values.",
+    "templatePaused": "Meta paused this template for low quality, so it cannot be sent right now.",
+    "templateDisabled": "Meta permanently disabled this template for low quality. Create a new one.",
+    "templatePolicy": "This template's content violates a WhatsApp policy.",
+    "phoneNotRegistered": "The sender number is not registered on the WhatsApp Business Platform, or the token cannot access it. Check the setup in Settings.",
+    "invalidParameter": "Meta rejected the request as malformed. {detail}",
+    "networkUnreachable": "The server could not reach WhatsApp. Check connectivity and try again.",
+    "unknown": "WhatsApp rejected the send: {detail}"
   }
 }

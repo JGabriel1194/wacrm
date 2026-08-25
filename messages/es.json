@@ -15,12 +15,12 @@
     "createAccount": "Crear cuenta"
   },
   "Sidebar": {
-    "title": "Plantilla de CRM para WhatsApp",
+    "title": "WhatsApp CRM",
     "dashboard": "Panel",
     "inbox": "Bandeja de entrada",
     "notifications": "Notificaciones",
     "contacts": "Contactos",
-    "pipelines": "Embudos",
+    "pipelines": "Pipelines",
     "broadcasts": "Difusiones",
     "automations": "Automatizaciones",
     "flows": "Flujos",
@@ -1695,5 +1695,25 @@
       "reindexTooltip": "Volver a generar los embeddings de todos los documentos (p. ej. tras añadir una clave de embeddings)",
       "loading": "Cargando…"
     }
+  },
+  "WhatsAppErrors": {
+    "paymentRequired": "Meta está bloqueando los mensajes iniciados por la empresa: esta cuenta de WhatsApp Business no tiene un método de pago válido. Agrégalo en Meta Business Manager y salda cualquier importe pendiente.",
+    "tokenExpired": "El token de acceso de WhatsApp caducó o fue revocado. Vuelve a conectar WhatsApp en Ajustes.",
+    "accountRestricted": "Meta restringió esta cuenta de WhatsApp Business por incumplir una política. Revisa su estado en Meta Business Manager.",
+    "rateLimited": "Se enviaron demasiados mensajes a la vez. Espera un momento e inténtalo de nuevo.",
+    "pairRateLimited": "Se enviaron demasiados mensajes a este contacto en poco tiempo. Espera antes de volver a enviar.",
+    "outsideWindow": "Han pasado más de 24 horas desde la última respuesta de este contacto. Solo una plantilla puede reabrir la conversación.",
+    "undeliverable": "WhatsApp no pudo entregar el mensaje. Puede que el número no esté en WhatsApp o que la app del destinatario esté desactualizada.",
+    "templateNotFound": "Meta no tiene ninguna plantilla aprobada con ese nombre en este idioma. Ejecuta «Sincronizar desde Meta» en Ajustes y revisa el código de idioma.",
+    "templateParamCount": "La cantidad de valores no coincide con las variables que declara la plantilla. Completa todas las variables.",
+    "templateParamFormat": "Uno de los valores de la plantilla tiene un formato incorrecto. Revisa el encabezado multimedia y el sufijo de los botones URL.",
+    "templateTextTooLong": "El mensaje supera el límite de longitud de WhatsApp al completar las variables. Usa valores más cortos.",
+    "templatePaused": "Meta pausó esta plantilla por baja calidad, así que no se puede enviar ahora mismo.",
+    "templateDisabled": "Meta deshabilitó permanentemente esta plantilla por baja calidad. Crea una nueva.",
+    "templatePolicy": "El contenido de esta plantilla incumple una política de WhatsApp.",
+    "phoneNotRegistered": "El número emisor no está registrado en la plataforma de WhatsApp Business, o el token no puede acceder a él. Revisa la configuración en Ajustes.",
+    "invalidParameter": "Meta rechazó la solicitud por estar mal formada. {detail}",
+    "networkUnreachable": "El servidor no pudo conectarse con WhatsApp. Revisa la conectividad e inténtalo de nuevo.",
+    "unknown": "WhatsApp rechazó el envío: {detail}"
   }
 }

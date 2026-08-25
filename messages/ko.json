@@ -1695,5 +1695,25 @@
       "reindexTooltip": "모든 문서를 다시 임베딩합니다 (예: 임베딩 키 추가 후)",
       "loading": "불러오는 중…"
     }
+  },
+  "WhatsAppErrors": {
+    "paymentRequired": "Meta가 비즈니스에서 시작한 메시지를 차단하고 있습니다. 이 WhatsApp Business 계정에 유효한 결제 수단이 없습니다. Meta Business Manager에서 결제 수단을 추가하고 미납 금액을 정산하세요.",
+    "tokenExpired": "WhatsApp 액세스 토큰이 만료되었거나 취소되었습니다. 설정에서 WhatsApp을 다시 연결하세요.",
+    "accountRestricted": "정책 위반으로 Meta가 이 WhatsApp Business 계정을 제한했습니다. Meta Business Manager에서 상태를 확인하세요.",
+    "rateLimited": "한 번에 너무 많은 메시지를 보냈습니다. 잠시 후 다시 시도하세요.",
+    "pairRateLimited": "짧은 시간에 이 연락처로 너무 많은 메시지를 보냈습니다. 잠시 기다린 후 다시 보내세요.",
+    "outsideWindow": "이 연락처가 마지막으로 답장한 지 24시간이 지났습니다. 템플릿 메시지로만 대화를 다시 열 수 있습니다.",
+    "undeliverable": "WhatsApp이 메시지를 전달하지 못했습니다. 해당 번호가 WhatsApp에 없거나 수신자의 앱이 오래되었을 수 있습니다.",
+    "templateNotFound": "Meta에 이 언어로 승인된 해당 이름의 템플릿이 없습니다. 설정에서 'Meta에서 동기화'를 실행하고 언어 코드를 확인하세요.",
+    "templateParamCount": "값의 개수가 템플릿이 선언한 변수의 개수와 일치하지 않습니다. 모든 변수를 채우세요.",
+    "templateParamFormat": "템플릿 값 중 하나의 형식이 올바르지 않습니다. 미디어 헤더와 URL 버튼 접미사를 확인하세요.",
+    "templateTextTooLong": "변수를 채우면 메시지가 WhatsApp의 길이 제한을 초과합니다. 더 짧은 값을 사용하세요.",
+    "templatePaused": "품질 저하로 Meta가 이 템플릿을 일시 중지하여 지금은 보낼 수 없습니다.",
+    "templateDisabled": "품질 저하로 Meta가 이 템플릿을 영구 비활성화했습니다. 새 템플릿을 만드세요.",
+    "templatePolicy": "이 템플릿의 콘텐츠가 WhatsApp 정책을 위반합니다.",
+    "phoneNotRegistered": "발신 번호가 WhatsApp Business 플랫폼에 등록되어 있지 않거나 토큰이 접근할 수 없습니다. 설정에서 구성을 확인하세요.",
+    "invalidParameter": "형식이 잘못되어 Meta가 요청을 거부했습니다. {detail}",
+    "networkUnreachable": "서버가 WhatsApp에 연결하지 못했습니다. 연결 상태를 확인한 후 다시 시도하세요.",
+    "unknown": "WhatsApp이 전송을 거부했습니다: {detail}"
   }
 }

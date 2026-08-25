@@ -24,18 +24,179 @@ export interface MetaPhoneInfo {
 }
 
 interface MetaErrorResponse {
-  error?: { message?: string; code?: number; type?: string }
+  error?: {
+    message?: string
+    code?: number
+    type?: string
+    error_subcode?: number
+    fbtrace_id?: string
+    error_user_title?: string
+    error_user_msg?: string
+    error_data?: { messaging_product?: string; details?: string }
+  }
 }
 
-async function throwMetaError(response: Response, fallback: string): Promise<never> {
-  let message = fallback
-  try {
-    const data = (await response.json()) as MetaErrorResponse
-    if (data.error?.message) message = data.error.message
-  } catch {
-    // response body wasn't JSON — keep the fallback
+/**
+ * A rejection from the Graph API, carrying the whole error envelope.
+ *
+ * `error.message` on its own is close to useless for template sends —
+ * Meta returns "(#132000) Number of parameters does not match the
+ * expected number of params" without saying WHICH component broke. The
+ * field that names it lives in `error.error_data.details`, and the
+ * `fbtrace_id` is what Meta support asks for. We used to throw those
+ * away, which is why a failed send surfaced as a bare 502 with nothing
+ * actionable in it. Keep every field: the send path logs the object,
+ * and the API layer puts the flattened `message` on the wire.
+ */
+export class MetaApiError extends Error {
+  readonly httpStatus: number
+  readonly code?: number
+  readonly subcode?: number
+  readonly type?: string
+  readonly details?: string
+  readonly userTitle?: string
+  readonly userMsg?: string
+  readonly fbtraceId?: string
+  /** The response body exactly as Meta sent it (parsed, or raw text). */
+  readonly raw: unknown
+
+  constructor(httpStatus: number, envelope: MetaErrorResponse, raw: unknown, fallback: string) {
+    const e = envelope.error ?? {}
+    const parts = [e.message?.trim() || fallback]
+    if (e.error_data?.details) parts.push(e.error_data.details)
+    if (e.error_user_msg && e.error_user_msg !== e.error_data?.details) {
+      parts.push(e.error_user_msg)
+    }
+    const tags = [
+      e.code != null ? `code ${e.code}` : null,
+      e.error_subcode != null ? `subcode ${e.error_subcode}` : null,
+      e.fbtrace_id ? `fbtrace_id ${e.fbtrace_id}` : null,
+    ].filter(Boolean)
+    super(
+      tags.length > 0
+        ? `${parts.join(' — ')} [${tags.join(', ')}]`
+        : parts.join(' — ')
+    )
+    this.name = 'MetaApiError'
+    this.httpStatus = httpStatus
+    this.code = e.code
+    this.subcode = e.error_subcode
+    this.type = e.type
+    this.details = e.error_data?.details
+    this.userTitle = e.error_user_title
+    this.userMsg = e.error_user_msg
+    this.fbtraceId = e.fbtrace_id
+    this.raw = raw
   }
-  throw new Error(message)
+}
+
+/**
+ * True when verbose WhatsApp logging is on (`WHATSAPP_DEBUG=true`).
+ * Off by default: the payloads contain recipient phone numbers.
+ */
+export function whatsappDebugEnabled(): boolean {
+  return (
+    process.env.WHATSAPP_DEBUG === 'true' || process.env.WHATSAPP_DEBUG === '1'
+  )
+}
+
+/**
+ * One-line structured log, only when `WHATSAPP_DEBUG` is on. Written to
+ * stdout so it lands in the container logs (Coolify → Logs).
+ */
+export function waDebug(scope: string, data: unknown): void {
+  if (!whatsappDebugEnabled()) return
+  try {
+    console.log(`[wa-debug] ${scope} ${JSON.stringify(data)}`)
+  } catch {
+    console.log(`[wa-debug] ${scope} <unserializable payload>`)
+  }
+}
+
+/**
+ * A failure to *reach* Graph at all — DNS, TLS, timeout, proxy. Distinct
+ * from `MetaApiError`, which means Meta answered and said no.
+ *
+ * `fetch` collapses every transport failure into the string "fetch
+ * failed" and hides the real reason in `err.cause.code`. That one string
+ * is what a developer sees when a TLS-inspecting firewall sits between
+ * the app and Meta (`UNABLE_TO_VERIFY_LEAF_SIGNATURE`), and it reads
+ * like an application bug when it is a network one. Surface the cause.
+ */
+export class MetaNetworkError extends Error {
+  readonly cause_code?: string
+  readonly url: string
+
+  constructor(url: string, cause: unknown) {
+    const c = cause as { code?: string; message?: string } | undefined
+    const code = c?.code
+    let hint = ''
+    if (code && /CERT|SELF_SIGNED|UNABLE_TO_VERIFY/i.test(code)) {
+      hint =
+        ' — the TLS certificate chain could not be verified. Something is' +
+        ' intercepting HTTPS (corporate/campus firewall, VPN, or antivirus).' +
+        ' Point Node at that CA with NODE_EXTRA_CA_CERTS, or run from a' +
+        ' network that does not intercept.'
+    } else if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') {
+      hint = ' — DNS lookup failed. Check the container has outbound DNS.'
+    } else if (code === 'ECONNREFUSED' || code === 'ETIMEDOUT') {
+      hint = ' — no route to Meta. Check outbound egress rules.'
+    }
+    super(
+      `Could not reach ${new URL(url).host}: ${c?.message ?? String(cause)}` +
+        (code ? ` [${code}]` : '') +
+        hint
+    )
+    this.name = 'MetaNetworkError'
+    this.cause_code = code
+    this.url = url
+  }
+}
+
+/**
+ * `fetch` for every Graph call in this module. Behaves exactly like
+ * `fetch` on success; on a transport failure it throws a
+ * `MetaNetworkError` carrying the underlying cause instead of the
+ * opaque "fetch failed".
+ */
+async function metaFetch(url: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init)
+  } catch (err) {
+    const cause = (err as { cause?: unknown })?.cause ?? err
+    const netErr = new MetaNetworkError(url, cause)
+    console.error(`[meta-api] ${netErr.message}`)
+    throw netErr
+  }
+}
+
+/**
+ * Read a failed Graph response and throw a `MetaApiError`.
+ *
+ * The body is read as text first so a non-JSON error page (a proxy 502,
+ * an HTML block page) is preserved verbatim instead of collapsing into
+ * the generic fallback.
+ */
+async function throwMetaError(response: Response, fallback: string): Promise<never> {
+  const text = await response.text().catch(() => '')
+  let envelope: MetaErrorResponse = {}
+  let raw: unknown = text
+  try {
+    raw = JSON.parse(text)
+    envelope = raw as MetaErrorResponse
+  } catch {
+    // Not JSON — keep the raw text as the payload and let the fallback
+    // carry the status. A truncated snippet still beats "Meta API error".
+    if (text) envelope = { error: { message: text.slice(0, 500) } }
+  }
+  const err = new MetaApiError(response.status, envelope, raw, fallback)
+  // Always logged (not gated by WHATSAPP_DEBUG): a rejection is exactly
+  // the moment you need the full envelope in production.
+  console.error(
+    `[meta-api] ${response.status} from Graph:`,
+    JSON.stringify(raw)
+  )
+  throw err
 }
 
 // ============================================================
@@ -56,7 +217,7 @@ export async function verifyPhoneNumber(
 ): Promise<MetaPhoneInfo> {
   const { phoneNumberId, accessToken } = args
   const url = `${META_API_BASE}/${phoneNumberId}?fields=id,display_phone_number,verified_name,quality_rating`
-  const response = await fetch(url, {
+  const response = await metaFetch(url, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   if (!response.ok) {
@@ -125,7 +286,7 @@ export async function registerPhoneNumber(
 ): Promise<RegisterPhoneNumberResult> {
   const { phoneNumberId, accessToken, pin } = args
   const url = `${META_API_BASE}/${phoneNumberId}/register`
-  const response = await fetch(url, {
+  const response = await metaFetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -169,7 +330,7 @@ export async function subscribeWabaToApp(
 ): Promise<void> {
   const { wabaId, accessToken } = args
   const url = `${META_API_BASE}/${wabaId}/subscribed_apps`
-  const response = await fetch(url, {
+  const response = await metaFetch(url, {
     method: 'POST',
     headers: { Authorization: `Bearer ${accessToken}` },
   })
@@ -201,7 +362,7 @@ export async function getSubscribedApps(
 ): Promise<SubscribedApp[]> {
   const { wabaId, accessToken } = args
   const url = `${META_API_BASE}/${wabaId}/subscribed_apps`
-  const response = await fetch(url, {
+  const response = await metaFetch(url, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   if (!response.ok) {
@@ -244,7 +405,7 @@ export async function sendTextMessage(
   if (contextMessageId) {
     body.context = { message_id: contextMessageId }
   }
-  const response = await fetch(url, {
+  const response = await metaFetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -310,7 +471,7 @@ export async function sendMediaMessage(
   }
   if (contextMessageId) body.context = { message_id: contextMessageId }
 
-  const response = await fetch(url, {
+  const response = await metaFetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -389,6 +550,69 @@ export async function sendTemplateMessage(
   } = args
   const url = `${META_API_BASE}/${phoneNumberId}/messages`
 
+  const body = buildTemplateSendPayload({
+    to,
+    templateName,
+    language,
+    params,
+    template,
+    messageParams,
+    contextMessageId,
+  })
+
+  waDebug('POST /messages (template)', { url, body })
+
+  const response = await metaFetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) {
+    // Log the exact payload alongside the rejection. Without this the
+    // container log shows Meta's complaint but not what we sent, which
+    // is half the information you need to fix a template send.
+    console.error(
+      `[meta-api] template send rejected — payload:`,
+      JSON.stringify(body)
+    )
+    await throwMetaError(response, `Meta API error: ${response.status}`)
+  }
+  const data = await response.json()
+  return { messageId: data.messages[0].id }
+}
+
+/**
+ * Build the exact JSON body that `sendTemplateMessage` POSTs to
+ * `/{phone_number_id}/messages`.
+ *
+ * Split out from the send so a diagnostics caller can inspect (or
+ * dry-run) the payload without delivering a message to a customer —
+ * see `/api/whatsapp/debug/send-template`. Any validation error from
+ * the send-builder ("Body has 2 variable(s) but only 1 value(s) were
+ * supplied") throws here, before the network call.
+ */
+export function buildTemplateSendPayload(args: {
+  to: string
+  templateName: string
+  language?: string
+  params?: string[]
+  template?: MessageTemplate
+  messageParams?: SendTimeParams
+  contextMessageId?: string
+}): Record<string, unknown> {
+  const {
+    to,
+    templateName,
+    language = 'en_US',
+    params,
+    template,
+    messageParams,
+    contextMessageId,
+  } = args
+
   const templatePayload: Record<string, unknown> = {
     name: templateName,
     language: { code: language },
@@ -427,20 +651,7 @@ export async function sendTemplateMessage(
   if (contextMessageId) {
     body.context = { message_id: contextMessageId }
   }
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify(body),
-  })
-  if (!response.ok) {
-    await throwMetaError(response, `Meta API error: ${response.status}`)
-  }
-  const data = await response.json()
-  return { messageId: data.messages[0].id }
+  return body
 }
 
 // ============================================================
@@ -486,7 +697,7 @@ export async function uploadResumableMedia(
     file_type: mimeType,
     access_token: accessToken,
   })
-  const startRes = await fetch(
+  const startRes = await metaFetch(
     `${META_API_BASE}/${appId}/uploads?${startParams.toString()}`,
     { method: 'POST' },
   )
@@ -500,7 +711,7 @@ export async function uploadResumableMedia(
 
   // Step 2 — upload the bytes. Note the `OAuth` auth scheme (not Bearer)
   // and the file_offset header, both required by this endpoint.
-  const uploadRes = await fetch(`${META_API_BASE}/${startData.id}`, {
+  const uploadRes = await metaFetch(`${META_API_BASE}/${startData.id}`, {
     method: 'POST',
     headers: {
       Authorization: `OAuth ${accessToken}`,
@@ -556,7 +767,7 @@ export async function submitMessageTemplate(
 ): Promise<SubmitMessageTemplateResult> {
   const { wabaId, accessToken, payload } = args
   const url = `${META_API_BASE}/${wabaId}/message_templates`
-  const response = await fetch(url, {
+  const response = await metaFetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -608,7 +819,7 @@ export async function editMessageTemplate(
   const { metaTemplateId, accessToken, components, category } = args
   const body: Record<string, unknown> = { components }
   if (category) body.category = category
-  const response = await fetch(`${META_API_BASE}/${metaTemplateId}`, {
+  const response = await metaFetch(`${META_API_BASE}/${metaTemplateId}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -647,7 +858,7 @@ export async function deleteMessageTemplate(
   const params = new URLSearchParams({ name })
   if (metaTemplateId) params.set('hsm_id', metaTemplateId)
   const url = `${META_API_BASE}/${wabaId}/message_templates?${params.toString()}`
-  const response = await fetch(url, {
+  const response = await metaFetch(url, {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${accessToken}` },
   })
@@ -682,7 +893,7 @@ export async function sendReactionMessage(
 ): Promise<MetaSendResult> {
   const { phoneNumberId, accessToken, to, targetMessageId, emoji } = args
   const url = `${META_API_BASE}/${phoneNumberId}/messages`
-  const response = await fetch(url, {
+  const response = await metaFetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -818,7 +1029,7 @@ export async function sendInteractiveButtons(
   if (contextMessageId) body.context = { message_id: contextMessageId }
 
   const url = `${META_API_BASE}/${phoneNumberId}/messages`
-  const response = await fetch(url, {
+  const response = await metaFetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -950,7 +1161,7 @@ export async function sendInteractiveList(
   if (contextMessageId) body.context = { message_id: contextMessageId }
 
   const url = `${META_API_BASE}/${phoneNumberId}/messages`
-  const response = await fetch(url, {
+  const response = await metaFetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -1007,7 +1218,7 @@ export async function getMediaUrl(
   args: GetMediaUrlArgs
 ): Promise<{ url: string; mimeType: string }> {
   const { mediaId, accessToken } = args
-  const response = await fetch(`${META_API_BASE}/${mediaId}`, {
+  const response = await metaFetch(`${META_API_BASE}/${mediaId}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   if (!response.ok) {
@@ -1031,7 +1242,7 @@ export async function downloadMedia(
   args: DownloadMediaArgs
 ): Promise<{ buffer: Buffer; contentType: string }> {
   const { downloadUrl, accessToken } = args
-  const response = await fetch(downloadUrl, {
+  const response = await metaFetch(downloadUrl, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   if (!response.ok) {

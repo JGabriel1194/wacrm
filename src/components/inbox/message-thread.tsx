@@ -30,6 +30,8 @@ import {
 } from "lucide-react";
 import { format, isToday, isYesterday, differenceInHours } from "date-fns";
 import { useTranslations } from "next-intl";
+
+import { useMetaErrorMessage } from "@/hooks/use-meta-error-message";
 import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
@@ -171,6 +173,7 @@ export function MessageThread({
   const t = useTranslations("Inbox.messageThread");
   const tTimer = useTranslations("Inbox.sessionTimer");
   const tQuote = useTranslations("Inbox.replyQuote");
+  const metaError = useMetaErrorMessage();
 
   const { user } = useAuth();
   const { getPresence, getRow, now } = usePresence();
@@ -480,9 +483,12 @@ export function MessageThread({
         const payload = await res.json().catch(() => ({}));
 
         if (!res.ok) {
-          const reason = payload?.error || `HTTP ${res.status}`;
+          const { message: reason, isKnown } = metaError(
+            payload,
+            `HTTP ${res.status}`,
+          );
           console.error("Failed to send message:", reason);
-          toast.error(`Failed to send: ${reason}`);
+          toast.error(isKnown ? reason : `Failed to send: ${reason}`);
           // Mark the optimistic bubble as failed so the user sees what happened
           onUpdateMessage(tempId, { status: "failed" });
           return;
@@ -499,7 +505,7 @@ export function MessageThread({
         onUpdateMessage(tempId, { status: "failed" });
       }
     },
-    [conversation, onNewMessage, onUpdateMessage]
+    [conversation, metaError, onNewMessage, onUpdateMessage]
   );
 
   const handleSendMedia = useCallback(
@@ -546,9 +552,12 @@ export function MessageThread({
         const data = await res.json().catch(() => ({}));
 
         if (!res.ok) {
-          const reason = data?.error || `HTTP ${res.status}`;
+          const { message: reason, isKnown } = metaError(
+            data,
+            `HTTP ${res.status}`,
+          );
           console.error("Failed to send media:", reason);
-          toast.error(`Failed to send: ${reason}`);
+          toast.error(isKnown ? reason : `Failed to send: ${reason}`);
           onUpdateMessage(tempId, { status: "failed" });
           // The upload never reached the recipient — GC the orphaned
           // object rather than leaving it in the public bucket forever.
@@ -565,7 +574,7 @@ export function MessageThread({
         void deleteAccountMedia(CHAT_MEDIA_BUCKET, payload.path).catch(() => {});
       }
     },
-    [conversation, onNewMessage, onUpdateMessage],
+    [conversation, metaError, onNewMessage, onUpdateMessage],
   );
 
   const handleSendInteractive = useCallback(
@@ -603,9 +612,12 @@ export function MessageThread({
         const data = await res.json().catch(() => ({}));
 
         if (!res.ok) {
-          const reason = data?.error || `HTTP ${res.status}`;
+          const { message: reason, isKnown } = metaError(
+            data,
+            `HTTP ${res.status}`,
+          );
           console.error("Failed to send interactive message:", reason);
-          toast.error(`Failed to send: ${reason}`);
+          toast.error(isKnown ? reason : `Failed to send: ${reason}`);
           onUpdateMessage(tempId, { status: "failed" });
           return;
         }
@@ -618,7 +630,7 @@ export function MessageThread({
         onUpdateMessage(tempId, { status: "failed" });
       }
     },
-    [conversation, onNewMessage, onUpdateMessage],
+    [conversation, metaError, onNewMessage, onUpdateMessage],
   );
 
   const handleStatusChange = useCallback(
@@ -692,9 +704,12 @@ export function MessageThread({
         const payload = await res.json().catch(() => ({}));
 
         if (!res.ok) {
-          const reason = payload?.error || `HTTP ${res.status}`;
+          const { message: reason, isKnown } = metaError(
+            payload,
+            `HTTP ${res.status}`,
+          );
           console.error("Failed to send template:", reason);
-          toast.error(`Failed to send template: ${reason}`);
+          toast.error(isKnown ? reason : `Failed to send template: ${reason}`);
           onUpdateMessage(tempId, { status: "failed" });
           return;
         }
@@ -707,7 +722,7 @@ export function MessageThread({
         onUpdateMessage(tempId, { status: "failed" });
       }
     },
-    [conversation, onNewMessage, onUpdateMessage],
+    [conversation, metaError, onNewMessage, onUpdateMessage],
   );
 
   // Build a quick id → Message map so reply quotes can be rendered without

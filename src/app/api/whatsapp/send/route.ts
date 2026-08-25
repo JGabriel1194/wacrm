@@ -193,8 +193,11 @@ export async function POST(request: Request) {
       })
     } catch (err) {
       if (err instanceof SendMessageError) {
+        // `meta_error` is the translatable key for a rejection that came
+        // from Meta; the UI prefers it over `error`, which stays on the
+        // wire as the raw fallback (and for non-Meta failures).
         return NextResponse.json(
-          { error: err.message },
+          { error: err.message, meta_error: err.metaErrorKey },
           { status: err.status }
         )
       }

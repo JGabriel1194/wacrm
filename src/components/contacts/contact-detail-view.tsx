@@ -42,6 +42,8 @@ import {
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
+import { useMetaErrorMessage } from '@/hooks/use-meta-error-message';
+
 interface ContactDetailViewProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -56,6 +58,7 @@ export function ContactDetailView({
   onUpdated,
 }: ContactDetailViewProps) {
   const t = useTranslations('Contacts.detailView');
+  const metaError = useMetaErrorMessage();
   const supabase = createClient();
   const { accountId, defaultCurrency } = useAuth();
 
@@ -352,8 +355,14 @@ export function ContactDetailView({
 
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const reason = payload?.error || `HTTP ${res.status}`;
-        toast.error(t('toastTemplateFailed', { reason }));
+        // A recognised Meta rejection already reads as a full sentence
+        // ("Meta is blocking business-initiated messages: …"), so it
+        // replaces the wrapper rather than being embedded in it.
+        const { message: reason, isKnown } = metaError(
+          payload,
+          `HTTP ${res.status}`,
+        );
+        toast.error(isKnown ? reason : t('toastTemplateFailed', { reason }));
         return;
       }
 

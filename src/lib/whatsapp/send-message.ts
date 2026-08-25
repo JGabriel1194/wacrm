@@ -27,8 +27,14 @@ import {
   sendMediaMessage,
   sendInteractiveButtons,
   sendInteractiveList,
+  MetaApiError,
+  MetaNetworkError,
   type MediaKind,
 } from '@/lib/whatsapp/meta-api';
+import {
+  metaErrorKey,
+  type MetaErrorKey,
+} from '@/lib/whatsapp/meta-error-codes';
 import {
   validateInteractivePayload,
   interactivePayloadPreviewText,
@@ -61,11 +67,24 @@ export const VALID_MESSAGE_TYPES = [
 export class SendMessageError extends Error {
   readonly code: string;
   readonly status: number;
-  constructor(code: string, message: string, status: number) {
+  /**
+   * For a rejection that came from Meta: the translatable key the UI
+   * renders instead of Meta's English developer string. Undefined for
+   * our own validation failures, whose `message` is already written
+   * for a human.
+   */
+  readonly metaErrorKey?: MetaErrorKey;
+  constructor(
+    code: string,
+    message: string,
+    status: number,
+    metaErrorKey?: MetaErrorKey
+  ) {
     super(message);
     this.name = 'SendMessageError';
     this.code = code;
     this.status = status;
+    this.metaErrorKey = metaErrorKey;
   }
 }
 
@@ -327,6 +346,16 @@ export async function sendMessageToConversation(
       );
     }
     templateRow = data ?? null;
+    if (!templateRow) {
+      // No local row for this name+language. The send still goes out,
+      // but as a body-only payload — which Meta rejects outright for a
+      // template with a media header or a variable URL button. The
+      // usual cause is a language-code mismatch (`es` vs `es_ES`), and
+      // without this line the failure looks like a plain Meta error.
+      console.warn(
+        `[send-message] no local template row for "${templateName}" (${templateLanguage || 'en_US'}) in account ${accountId} — sending body-only payload`
+      );
+    }
   }
 
   const attempt = async (phone: string): Promise<string> => {
@@ -426,8 +455,36 @@ export async function sendMessageToConversation(
   } catch (err) {
     const message =
       err instanceof Error ? err.message : 'Unknown Meta API error';
-    console.error('[send-message] Meta send failed for all variants:', message);
-    throw new SendMessageError('meta_error', `Meta API error: ${message}`, 502);
+    // Log the send's identity next to the failure. Meta's own error is
+    // already logged by `[meta-api]` with the full envelope + payload;
+    // this line is what tells you WHICH send in the log stream it was.
+    console.error('[send-message] Meta send failed for all variants:', {
+      message,
+      accountId,
+      conversationId,
+      messageType,
+      templateName: templateName ?? null,
+      templateLanguage: templateLanguage ?? null,
+      templateRowFound: messageType === 'template' ? templateRow !== null : null,
+      metaCode: err instanceof MetaApiError ? err.code : undefined,
+      metaSubcode: err instanceof MetaApiError ? err.subcode : undefined,
+      metaDetails: err instanceof MetaApiError ? err.details : undefined,
+      fbtraceId: err instanceof MetaApiError ? err.fbtraceId : undefined,
+    });
+    // Classify for the UI. A transport failure never reached Meta, so it
+    // gets its own key rather than a code lookup that would find nothing.
+    const key: MetaErrorKey =
+      err instanceof MetaNetworkError
+        ? 'networkUnreachable'
+        : err instanceof MetaApiError
+          ? metaErrorKey(err.code, err.subcode)
+          : 'unknown';
+    throw new SendMessageError(
+      'meta_error',
+      `Meta API error: ${message}`,
+      502,
+      key
+    );
   }
 
   if (workingPhone !== sanitizedPhone) {

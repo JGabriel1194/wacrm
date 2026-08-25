@@ -105,18 +105,29 @@ describe("lastNDayKeys", () => {
 });
 
 describe("mondayIndex", () => {
+  // `mondayIndex` reads the LOCAL day of week, to stay consistent with
+  // `localDayKey` — a chart bucketed by UTC would put a 20:00 message on
+  // the wrong bar for anyone west of Greenwich.
+  //
+  // So the dates here must be built as local times. A date-only string
+  // ("2026-05-18") is parsed as UTC midnight per ES2015, which is the
+  // 17th at 19:00 in UTC-5: these assertions passed in CI and failed on
+  // any machine in the Americas. Midday local avoids that and is immune
+  // to a DST transition landing on midnight.
+  const localDate = (iso: string) => new Date(`${iso}T12:00:00`);
+
   it("maps Monday → 0 and Sunday → 6", () => {
-    expect(mondayIndex(new Date("2026-05-18"))).toBe(0); // Mon
-    expect(mondayIndex(new Date("2026-05-19"))).toBe(1); // Tue
-    expect(mondayIndex(new Date("2026-05-23"))).toBe(5); // Sat
-    expect(mondayIndex(new Date("2026-05-24"))).toBe(6); // Sun
+    expect(mondayIndex(localDate("2026-05-18"))).toBe(0); // Mon
+    expect(mondayIndex(localDate("2026-05-19"))).toBe(1); // Tue
+    expect(mondayIndex(localDate("2026-05-23"))).toBe(5); // Sat
+    expect(mondayIndex(localDate("2026-05-24"))).toBe(6); // Sun
   });
 
   it("aligns with DOW_SHORT_MON_FIRST labels", () => {
-    expect(DOW_SHORT_MON_FIRST[mondayIndex(new Date("2026-05-18"))]).toBe(
+    expect(DOW_SHORT_MON_FIRST[mondayIndex(localDate("2026-05-18"))]).toBe(
       "Mon",
     );
-    expect(DOW_SHORT_MON_FIRST[mondayIndex(new Date("2026-05-24"))]).toBe(
+    expect(DOW_SHORT_MON_FIRST[mondayIndex(localDate("2026-05-24"))]).toBe(
       "Sun",
     );
   });
