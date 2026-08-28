@@ -232,6 +232,16 @@ export interface Message {
   created_at: string;
   reply_to_message_id?: string;
   /**
+   * Why an outbound message failed, as reported by Meta's status
+   * webhook (migration 037). Only ever set when `status === 'failed'` —
+   * the synchronous send returns 200, so this is the only channel that
+   * carries a reason. `error_code` maps to a translated message via
+   * `metaErrorKey`; `error_message` is Meta's verbatim text, used when
+   * the code isn't one we recognise.
+   */
+  error_code?: number | null;
+  error_message?: string | null;
+  /**
    * Only set when `content_type === 'interactive'` — the stable id of
    * the button or list row the customer tapped. The Flows engine uses
    * this to route the next node; the inbox bubble uses it as a styling

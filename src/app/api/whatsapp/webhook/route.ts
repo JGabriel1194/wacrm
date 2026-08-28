@@ -80,6 +80,18 @@ interface WhatsAppWebhookEntry {
         status: string
         timestamp: string
         recipient_id: string
+        /**
+         * Present when `status === 'failed'`. This is where Meta puts
+         * the actual reason — the synchronous POST already returned
+         * 200, so this array is the ONLY place the cause ever appears.
+         */
+        errors?: Array<{
+          code?: number
+          title?: string
+          message?: string
+          href?: string
+          error_data?: { details?: string }
+        }>
       }>
     }
     field: string
@@ -354,7 +366,29 @@ async function handleStatusUpdate(status: {
   status: string
   timestamp: string
   recipient_id: string
+  errors?: Array<{
+    code?: number
+    title?: string
+    message?: string
+    href?: string
+    error_data?: { details?: string }
+  }>
 }) {
+  // A failure arrives here and nowhere else. Log the whole thing —
+  // `[webhook]` in the container logs — and persist it onto the row so
+  // the bubble can say why instead of just going red.
+  const failure = status.status === 'failed' ? status.errors?.[0] : undefined
+  if (status.status === 'failed') {
+    console.error(
+      '[webhook] message failed:',
+      JSON.stringify({ wamid: status.id, errors: status.errors ?? null })
+    )
+  }
+  const failureText = failure
+    ? [failure.title, failure.error_data?.details ?? failure.message]
+        .filter(Boolean)
+        .join(' — ')
+    : null
   // 1) Mirror onto messages (legacy behavior) — Meta's status values
   //    already match the CHECK constraint on messages.status. No
   //    `.select()`: message_id is NOT unique (migration 009 — Meta ids
@@ -362,7 +396,15 @@ async function handleStatusUpdate(status: {
   //    assume a single row.
   const { error: msgErr } = await supabaseAdmin()
     .from('messages')
-    .update({ status: status.status })
+    .update({
+      status: status.status,
+      // Only touched on failure: a later 'delivered' for a different
+      // message must not wipe a stored reason, and a successful ladder
+      // step has nothing to say.
+      ...(status.status === 'failed'
+        ? { error_code: failure?.code ?? null, error_message: failureText }
+        : {}),
+    })
     .eq('message_id', status.id)
 
   if (msgErr) {

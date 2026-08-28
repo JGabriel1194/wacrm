@@ -219,3 +219,39 @@ fails in CI rather than at render time on the screen you're debugging.
 To add a code: add it to `BY_CODE`, add the key to `META_ERROR_KEYS`,
 and add the message to all three files in `messages/`. The test will
 tell you if you missed one.
+
+---
+
+## 7. The failure that never touches the response
+
+Most outbound failures are **asynchronous**. `POST /messages` returns
+200 with a wamid, the message is stored as `sent`, and only later does a
+status webhook arrive:
+
+```json
+"statuses": [{
+  "id": "wamid…",
+  "status": "failed",
+  "errors": [{ "code": 131042, "title": "Business eligibility payment issue" }]
+}]
+```
+
+Nothing about that reaches the browser response, so no toast can ever
+fire for it. Before migration 037 the handler copied `status` onto the
+row and dropped `errors` entirely — the bubble went red and the reason
+existed nowhere: not in the UI, not in the logs, not in the database.
+
+Now `handleStatusUpdate` logs the whole thing as `[webhook] message
+failed:` and persists `error_code` + `error_message` on the row, and the
+bubble renders the translated reason underneath itself.
+
+So there are two distinct paths, and it matters which one you're
+debugging:
+
+| Symptom                                          | Path                                              | Where the reason is                                                  |
+| ------------------------------------------------ | ------------------------------------------------- | -------------------------------------------------------------------- |
+| Toast on send, request is 502                    | Synchronous — Meta refused the API call           | Response `meta_error`, and `[meta-api]` in the logs                  |
+| No toast, request is 200, bubble turns red later | Asynchronous — Meta accepted then failed delivery | Under the bubble, `messages.error_code`, and `[webhook]` in the logs |
+
+A billing block (131042) usually takes the second path, which is why it
+can look like nothing happened at all.

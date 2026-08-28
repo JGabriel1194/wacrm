@@ -21,6 +21,8 @@ import { MessageReactions } from "./message-reactions";
 import { InteractivePreview } from "@/components/interactive/interactive-preview";
 import { useTranslations } from "next-intl";
 
+import { useMetaFailureReason } from "@/hooks/use-meta-error-message";
+
 interface MessageBubbleProps {
   message: Message;
   /** Pre-computed quote info for messages that reply to another. */
@@ -266,6 +268,11 @@ export function MessageBubble({
   onToggleReaction,
 }: MessageBubbleProps) {
   const t = useTranslations("Inbox.bubble");
+  const metaFailureReason = useMetaFailureReason();
+  const failureReason =
+    message.status === "failed"
+      ? metaFailureReason(message.error_code, message.error_message)
+      : null;
 
   const isAgent = message.sender_type === "agent" || message.sender_type === "bot";
   const time = format(new Date(message.created_at), "HH:mm");
@@ -329,6 +336,16 @@ export function MessageBubble({
           {isAgent && <StatusIcon status={message.status} />}
         </div>
       </div>
+      {isAgent && message.status === "failed" && failureReason && (
+        // Meta reports most send failures asynchronously, so the red
+        // status icon used to be the whole story. Now the reason rides
+        // under the bubble, where the person who tried to send it is
+        // already looking.
+        <div className="mt-1 flex max-w-[75%] items-start gap-1.5 rounded-md bg-destructive/10 px-2 py-1 text-[11px] leading-snug text-destructive">
+          <XCircle className="mt-0.5 h-3 w-3 shrink-0" />
+          <span>{failureReason}</span>
+        </div>
+      )}
       {reactions && reactions.length > 0 && onToggleReaction && (
         <MessageReactions
           reactions={reactions}
