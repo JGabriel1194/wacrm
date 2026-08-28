@@ -878,7 +878,7 @@
       "keywordsHint": "Comma-separated list (e.g. hello, help, buy)",
       "replyIds": "Reply IDs",
       "replyIdsHint": "yes, no, more_info",
-      "replyIdsHelp": "Comma-separated button/list-row ids to match, exact. Use the same ids you set on a Send Buttons / Send List step.",
+      "replyIdsHelp": "Comma-separated button/list-row ids to match, exact. Use the ids you set on a Send Buttons / Send List step — or, for a quick-reply button on a template, the exact button text.",
       "schedule": "Schedule",
       "scheduleHint": "Cron expression (e.g. 0 9 * * 1-5)",
       "active": "Active",

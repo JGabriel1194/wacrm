@@ -13,6 +13,10 @@ import {
   handleTemplateWebhookChange,
   isTemplateWebhookField,
 } from '@/lib/whatsapp/template-webhook'
+import {
+  extractTappedReply,
+  toMessageContentType,
+} from '@/lib/whatsapp/inbound-parse'
 
 // The `after()` callback in POST runs within this route's max duration.
 // Inbound processing can fan out to per-media Meta verification calls, so
@@ -57,6 +61,14 @@ interface WhatsAppMessage {
     button_reply?: { id: string; title: string }
     list_reply?: { id: string; title: string; description?: string }
   }
+  /**
+   * Set when the customer taps a QUICK_REPLY button on a TEMPLATE we
+   * sent. This is a different shape from `interactive` above — Meta uses
+   * `type: 'button'` for template taps and `type: 'interactive'` only for
+   * interactive messages we composed ourselves. Both funnel into
+   * `interactiveReplyId` via `extractTappedReply`.
+   */
+  button?: { payload?: string; text?: string }
   /** Present when the customer swipe-replies to one of our messages. */
   context?: { id: string }
 }
@@ -682,20 +694,11 @@ async function processMessage(
   // parseMessageContent. Silence the unused-var warning:
   void mediaType
 
-  // The messages.content_type CHECK constraint (widened in migration 010
-  // to add 'interactive' for button/list taps) allows:
-  //   text, image, document, audio, video, location, template, interactive
-  // Map incoming WhatsApp types that aren't in that list to the closest
-  // allowed value so the INSERT doesn't fail with a constraint error.
-  const ALLOWED_CONTENT_TYPES = new Set([
-    'text', 'image', 'document', 'audio', 'video',
-    'location', 'template', 'interactive',
-  ])
-  const contentType = ALLOWED_CONTENT_TYPES.has(message.type)
-    ? message.type
-    : message.type === 'sticker'
-      ? 'image'   // stickers are images
-      : 'text'    // reaction, unknown → text fallback
+  // Map the inbound WhatsApp type onto a value the messages.content_type
+  // CHECK constraint accepts. Notably 'button' (a template quick-reply
+  // tap) maps to 'interactive', so template taps are stored exactly like
+  // interactive taps. See @/lib/whatsapp/inbound-parse.
+  const contentType = toMessageContentType(message.type)
 
   // Determine whether this is the contact's very first inbound message
   // BEFORE we insert, so the count is accurate. Covers the case where
@@ -986,20 +989,25 @@ async function parseMessageContent(
     case 'reaction':
       return { ...empty, contentText: message.reaction?.emoji || null }
 
+    case 'button':
     case 'interactive': {
-      // The customer tapped a reply button or a list row on a message
-      // we previously sent. Meta delivers `interactive.button_reply` for
-      // 3-button messages and `interactive.list_reply` for list messages.
-      // Use the human-readable title as contentText so the inbox bubble
-      // renders the tap legibly ("Existing customer"), and stash the
-      // stable id separately so the Flows engine can route on it.
-      const reply =
-        message.interactive?.button_reply ?? message.interactive?.list_reply
-      if (reply?.id) {
+      // The customer tapped something we sent. Two distinct Meta shapes
+      // land here:
+      //   'button'      → quick-reply button on a TEMPLATE message
+      //                   ({ button: { payload, text } })
+      //   'interactive' → button / list row on an interactive message
+      //                   ({ interactive: { button_reply | list_reply } })
+      // `extractTappedReply` normalises both. Use the human-readable
+      // title as contentText so the inbox bubble renders the tap legibly
+      // ("Existing customer"), and stash the stable id separately so the
+      // Flows engine and the interactive_reply automation trigger can
+      // route on it.
+      const reply = extractTappedReply(message)
+      if (reply) {
         return {
           ...empty,
-          contentText: reply.title || reply.id,
-          interactiveReplyId: reply.id,
+          contentText: reply.title,
+          interactiveReplyId: reply.replyId,
         }
       }
       return { ...empty, contentText: '[Interactive reply]' }

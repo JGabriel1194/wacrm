@@ -878,7 +878,7 @@
       "keywordsHint": "쉼표로 구분된 목록 (예: hello, help, buy)",
       "replyIds": "응답 ID",
       "replyIdsHint": "yes, no, more_info",
-      "replyIdsHelp": "정확히 일치시킬 버튼/목록 행 id를 쉼표로 구분해 입력하세요. 버튼 보내기 / 목록 보내기 단계에서 설정한 것과 같은 id를 사용하세요.",
+      "replyIdsHelp": "정확히 일치시킬 버튼/목록 행 id를 쉼표로 구분해 입력하세요. 버튼 보내기 / 목록 보내기 단계에서 설정한 id를 사용하거나, 템플릿 빠른 답장 버튼의 경우 버튼의 정확한 텍스트를 사용하세요.",
       "schedule": "일정",
       "scheduleHint": "Cron 표현식 (예: 0 9 * * 1-5)",
       "active": "활성",

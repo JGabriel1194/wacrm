@@ -878,7 +878,7 @@
       "keywordsHint": "Lista separada por comas (p. ej. hola, ayuda, comprar)",
       "replyIds": "IDs de respuesta",
       "replyIdsHint": "si, no, mas_info",
-      "replyIdsHelp": "IDs de botones o filas de lista, separados por comas, con coincidencia exacta. Use los mismos ids que definió en un paso Enviar botones / Enviar lista.",
+      "replyIdsHelp": "IDs de botones o filas de lista, separados por comas, con coincidencia exacta. Use los ids que definió en un paso Enviar botones / Enviar lista — o, para un botón de respuesta rápida de una plantilla, el texto exacto del botón.",
       "schedule": "Programación",
       "scheduleHint": "Expresión cron (p. ej. 0 9 * * 1-5)",
       "active": "Activa",
