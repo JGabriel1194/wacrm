@@ -359,9 +359,9 @@
         "custom": "Campos personalizados",
         "deals": "Negocios",
         "tags": "Etiquetas",
-      "noTags": "Sin etiquetas",
-      "noDeals": "Sin negocios",
-      "addNotePlaceholder": "Añadir una nota..."
+        "noTags": "Sin etiquetas",
+        "noDeals": "Sin negocios",
+        "addNotePlaceholder": "Añadir una nota..."
       },
       "actions": {
         "edit": "Editar",
@@ -414,7 +414,7 @@
     },
     "importModal": {
       "title": "Importar contactos",
-      "desc": "Suba un CSV con la columna obligatoria <phoneCode>phone</phoneCode>. Opcionales: <nameCode>name</nameCode>, <emailCode>email</emailCode>, <companyCode>company</companyCode>, <tagsCode>tags</tagsCode> (separadas por comas; entrecomille las celdas con varias etiquetas).",
+      "desc": "Suba un CSV con la columna obligatoria <phoneCode>phone</phoneCode>. Opcionales: <nameCode>name</nameCode>, <emailCode>email</emailCode>, <companyCode>company</companyCode>, <tagsCode>tags</tagsCode> (separadas por comas; entrecomille las celdas con varias etiquetas). Los campos personalizados van en columnas <cfCode>cf:nombre</cfCode>.",
       "uploadDropzone": "Haga clic para elegir un archivo CSV",
       "uploadHint": ".csv hasta el límite de su navegador",
       "rowsReady": "{count} fila lista",
@@ -422,15 +422,21 @@
       "preview": "Vista previa · primeras {count}",
       "previewTags": "{tags} etiqueta · {contacts} contacto",
       "previewTags_plural": "{tags} etiquetas · {contacts} contactos",
+      "previewCustomFields": "{count} campo personalizado",
+      "previewCustomFields_plural": "{count} campos personalizados",
       "moreRows": "+ {count} fila más no mostrada",
       "moreRows_plural": "+ {count} filas más no mostradas",
       "importComplete": "Importación completada",
       "resultImported": "{count} importados",
       "resultTags": "{count} etiqueta asignada",
       "resultTags_plural": "{count} etiquetas asignadas",
+      "resultCustomFields": "{count} valor de campo guardado",
+      "resultCustomFields_plural": "{count} valores de campo guardados",
       "resultSkipped": "{count} omitidos",
       "resultFailed": "{count} fallidos",
       "willBeCreated": "{name} (se creará al importar)",
+      "fieldWillBeCreated": "{name} (el campo se creará al importar)",
+      "newFieldsNote": "Campos personalizados que se crearán al importar: {names}",
       "columns": {
         "phone": "Teléfono",
         "name": "Nombre",
@@ -449,6 +455,10 @@
       "toastTagsAssigned": "{count} asignación de etiqueta aplicada",
       "toastTagsAssigned_plural": "{count} asignaciones de etiquetas aplicadas",
       "toastTagsSkipped": "Se omitieron etiquetas desconocidas (créelas primero en Configuración): {sample}{more}",
+      "toastCustomFieldsWarning": "Contactos importados, pero fallaron algunos valores de campos personalizados.",
+      "toastCustomFieldsAssigned": "{count} valor de campo personalizado aplicado",
+      "toastCustomFieldsAssigned_plural": "{count} valores de campos personalizados aplicados",
+      "toastCustomFieldsSkipped": "Campos personalizados desconocidos omitidos (créelos primero en Ajustes): {sample}{more}",
       "toastSkipped": "{count} duplicado omitido",
       "toastSkipped_plural": "{count} duplicados omitidos",
       "toastFailed": "{count} contacto no se pudo importar",
@@ -1332,13 +1342,13 @@
       "deleteLocallyAria": "Eliminar la plantilla localmente",
       "deleteMetaLocallyTitle": "Eliminar de Meta y localmente",
       "deleteLocallyTitle": "Eliminar localmente",
-      
+
       "dialogEditTitle": "Editar plantilla de mensaje",
       "dialogNewTitle": "Nueva plantilla de mensaje",
       "dialogEditDesc": "Guarde los cambios para reenviarla a Meta. El estado volverá a PENDIENTE durante la revisión.",
       "dialogNewDesc": "Cree una plantilla y envíela a Meta para su aprobación. Una vez aprobada, podrá usarla en difusiones y en la bandeja de entrada.",
       "authWarning": "Las plantillas de AUTENTICACIÓN tienen un cuerpo fijo y un botón OTP que requieren otro creador. Por ahora, créelas en Meta WhatsApp Manager y use <bold>Sincronizar desde Meta</bold> para importarlas.",
-      
+
       "templateName": "Nombre de la plantilla",
       "namePlaceholder": "p. ej. confirmacion_pedido",
       "nameFixed": "El nombre queda fijo una vez que la plantilla existe en Meta: cree una plantilla nueva para cambiarlo.",
@@ -1347,7 +1357,7 @@
       "language": "Idioma",
       "langFixed": "El idioma queda fijo una vez que la plantilla existe en Meta.",
       "langHint": "Debe coincidir exactamente con el código en Meta: <code>en_US</code> y <code>en</code> son distintos.",
-      
+
       "header": "Encabezado",
       "headerNone": "Ninguno",
       "headerText": "Texto",
@@ -1357,7 +1367,7 @@
       "headerTextPlaceholder": "Texto del encabezado (máx. 60 caracteres, {{1}} opcional)",
       "headerSampleAria": "Valor de ejemplo para la variable del encabezado",
       "headerSamplePlaceholder": "Valor de ejemplo para {{1}} (obligatorio para la revisión de Meta)",
-      
+
       "uploadImage": "Subir imagen",
       "uploadHint": "JPEG o PNG, ≤5 MB",
       "mediaUrlPlaceholder": "https://… (o pegue un enlace público de {format})",
@@ -1365,17 +1375,17 @@
       "mediaHint": "Debe ser un enlace HTTPS de acceso público. Meta lo descarga una vez durante la revisión, así que debe seguir activo unas 24 h.",
       "videoHint": " Recomendado: MP4 / 3GPP, ≤16 MB, ≤60 segundos.",
       "documentHint": " Recomendado: PDF, ≤100 MB.",
-      
+
       "bodyText": "Texto del cuerpo",
       "bodyPlaceholder": "Hola {{1}}, su pedido {{2}} está confirmado.",
       "bodyHint": "Use {{1}}, {{2}} para las variables (deben ser consecutivas empezando en {{1}}).",
       "sampleValues": "Valores de ejemplo (Meta los usa para revisar su plantilla)",
       "sampleAria": "Valor de ejemplo para la variable del cuerpo {var}",
       "samplePlaceholder": "Ejemplo para {var}",
-      
+
       "footer": "Pie de página (opcional)",
       "footerPlaceholder": "Texto opcional del pie de página (máx. 60 caracteres)",
-      
+
       "buttons": "Botones (opcional)",
       "addButton": "Añadir botón",
       "buttonsLimit": "Hasta {max} botones. Los botones QUICK_REPLY deben ir antes de los de URL, teléfono o copiar código.",
@@ -1388,19 +1398,19 @@
       "urlSamplePlaceholder": "Valor de ejemplo para {{1}} (obligatorio cuando la URL tiene una variable)",
       "phonePlaceholder": "+15551234567",
       "codePlaceholder": "Código de ejemplo (p. ej. VERANO20)",
-      
+
       "cancel": "Cancelar",
       "saving": "Guardando…",
       "submitting": "Enviando…",
       "saveResubmit": "Guardar y reenviar",
       "submitApproval": "Enviar para aprobación",
-      
+
       "deleteDialogTitle": "¿Eliminar la plantilla?",
       "deleteMetaDesc": "\"{name}\" se eliminará de Meta y de wacrm. Las difusiones activas que usen esta plantilla empezarán a fallar en su próximo envío. Esto no se puede deshacer.",
       "deleteLocalDesc": "\"{name}\" se eliminará de wacrm. Nunca se envió a Meta, así que no hace falta limpieza remota.",
       "deleting": "Eliminando…",
       "delete": "Eliminar",
-      
+
       "toastLoadFailed": "No se pudieron cargar las plantillas",
       "toastSubmitFailed": "No se pudo enviar",
       "toastSubmitEditSuccess": "Edición enviada: Meta suele revisar en 24 horas.",
@@ -1540,7 +1550,7 @@
       "profileSaved": "Perfil guardado",
       "emailChangeFailed": "No se pudo cambiar el correo: {message}",
       "profileSavedEmailCheck": "Perfil guardado: revise su correo para confirmar el cambio de dirección",
-      
+
       "passwordTitle": "Contraseña",
       "passwordDesc": "Use al menos {min} caracteres. Su sesión seguirá abierta en este dispositivo tras cambiarla.",
       "currentPassword": "Contraseña actual",
@@ -1554,7 +1564,7 @@
       "currentPasswordIncorrect": "La contraseña actual es incorrecta",
       "passwordUpdateFailed": "No se pudo actualizar la contraseña: {message}",
       "passwordUpdated": "Contraseña actualizada",
-      
+
       "sessionsTitle": "Sesiones activas",
       "sessionsDesc": "Cierre la sesión en todos los dispositivos donde haya iniciado sesión, incluido este. Útil si perdió un portátil o compartió su contraseña.",
       "signOutAll": "Cerrar sesión en todos los dispositivos",

@@ -10,8 +10,14 @@ import {
 } from '@/lib/contacts/dedupe';
 import {
   parseContactCsv,
+  type CustomFieldColumn,
   type ParsedContactRow,
 } from '@/lib/contacts/parse-contact-csv';
+import {
+  assignImportedCustomValues,
+  resolveImportCustomFieldIds,
+  type ContactCustomValueAssignment,
+} from '@/lib/contacts/resolve-import-custom-fields';
 import {
   assignImportedContactTags,
   resolveImportTagIds,
@@ -36,6 +42,7 @@ import {
   XCircle,
   AlertTriangle,
   Tag,
+  ListPlus,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
@@ -135,6 +142,10 @@ export function ImportModal({
   const [parsedRows, setParsedRows] = useState<ParsedContactRow[]>([]);
   const [hasTagsColumn, setHasTagsColumn] = useState(false);
   const [hasCompanyColumn, setHasCompanyColumn] = useState(false);
+  const [customFieldColumns, setCustomFieldColumns] = useState<
+    CustomFieldColumn[]
+  >([]);
+  const [knownFieldKeys, setKnownFieldKeys] = useState<Set<string>>(new Set());
   const [tagColorByKey, setTagColorByKey] = useState<Map<string, string>>(
     new Map()
   );
@@ -144,6 +155,7 @@ export function ImportModal({
     skipped: number;
     failed: number;
     tagsAssigned: number;
+    customValuesAssigned: number;
   } | null>(null);
 
   function reset() {
@@ -151,6 +163,8 @@ export function ImportModal({
     setParsedRows([]);
     setHasTagsColumn(false);
     setHasCompanyColumn(false);
+    setCustomFieldColumns([]);
+    setKnownFieldKeys(new Set());
     setTagColorByKey(new Map());
     setResult(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -173,6 +187,7 @@ export function ImportModal({
       rows,
       hasTagsColumn: csvHasTags,
       hasCompanyColumn: csvHasCompany,
+      customFieldColumns: csvCustomFields,
     } = parseContactCsv(text);
 
     if (rows.length === 0) {
@@ -180,6 +195,8 @@ export function ImportModal({
       setParsedRows([]);
       setHasTagsColumn(false);
       setHasCompanyColumn(false);
+      setCustomFieldColumns([]);
+      setKnownFieldKeys(new Set());
       setTagColorByKey(new Map());
       return;
     }
@@ -187,6 +204,22 @@ export function ImportModal({
     setParsedRows(rows);
     setHasTagsColumn(csvHasTags);
     setHasCompanyColumn(csvHasCompany);
+    setCustomFieldColumns(csvCustomFields);
+
+    // Which `cf:` columns already exist as field definitions, so the
+    // preview can flag the ones import would have to create.
+    if (csvCustomFields.length > 0 && accountId) {
+      const { data: fields } = await supabase
+        .from('custom_fields')
+        .select('field_name')
+        .eq('account_id', accountId);
+
+      setKnownFieldKeys(
+        new Set((fields ?? []).map((f) => f.field_name.trim().toLowerCase()))
+      );
+    } else {
+      setKnownFieldKeys(new Set());
+    }
 
     if (csvHasTags && accountId) {
       const { data: tags } = await supabase
@@ -262,7 +295,23 @@ export function ImportModal({
         }));
       }
 
-      const tagAssignments: ContactTagAssignment[] = [];
+      // 3b) Resolve `cf:` column names → custom field ids (admin+ may
+      //     auto-create missing definitions, same rule as tags).
+      let fieldIdByKey = new Map<string, string>();
+      let skippedFieldLabels: string[] = [];
+      if (customFieldColumns.length > 0) {
+        ({ fieldIdByKey, skippedLabels: skippedFieldLabels } =
+          await resolveImportCustomFieldIds(supabase, {
+            accountId,
+            userId: user.id,
+            fieldLabels: customFieldColumns.map((c) => c.label),
+            canCreateFields: canEditSettings,
+          }));
+      }
+
+      // Contacts we actually created, paired with the CSV row they came
+      // from — tags and custom values are both derived from this.
+      const inserted: { contactId: string; source: ParsedContactRow }[] = [];
 
       // 4) Batch insert the genuinely-new rows in chunks of 50. The DB
       //    unique index is the backstop: a 23505 (race, or a format
@@ -299,12 +348,7 @@ export function ImportModal({
 
             if (!singleErr && singleData) {
               imported++;
-              if (source.tagNames.length > 0) {
-                tagAssignments.push({
-                  contactId: singleData.id,
-                  tagNames: source.tagNames,
-                });
-              }
+              inserted.push({ contactId: singleData.id, source });
             } else if (isUniqueViolation(singleErr)) {
               skipped++;
             } else {
@@ -312,24 +356,35 @@ export function ImportModal({
             }
           }
         } else {
-          const inserted = data ?? [];
-          imported += inserted.length;
-          // inserted[j] ↔ chunk[j] only holds because a single INSERT
+          const insertedChunk = data ?? [];
+          imported += insertedChunk.length;
+          // insertedChunk[j] ↔ chunk[j] only holds because a single INSERT
           // preserves RETURNING order. If this path is ever split into
           // parallel inserts, zip by phone or returned id instead.
-          for (let j = 0; j < inserted.length; j++) {
+          for (let j = 0; j < insertedChunk.length; j++) {
             const source = chunk[j];
-            if (!source || source.tagNames.length === 0) continue;
-            tagAssignments.push({
-              contactId: inserted[j].id,
-              tagNames: source.tagNames,
-            });
+            if (!source) continue;
+            inserted.push({ contactId: insertedChunk[j].id, source });
           }
         }
       }
 
-      // 5) Wire tags onto the contacts we just created. Failure here must
-      //    not mask a successful contact import.
+      // 5) Wire tags and custom field values onto the contacts we just
+      //    created. Failure here must not mask a successful contact import.
+      const tagAssignments: ContactTagAssignment[] = [];
+      const customAssignments: ContactCustomValueAssignment[] = [];
+      for (const { contactId, source } of inserted) {
+        if (source.tagNames.length > 0) {
+          tagAssignments.push({ contactId, tagNames: source.tagNames });
+        }
+        if (Object.keys(source.customValues).length > 0) {
+          customAssignments.push({
+            contactId,
+            customValues: source.customValues,
+          });
+        }
+      }
+
       let tagsAssigned = 0;
       try {
         tagsAssigned = await assignImportedContactTags(
@@ -341,13 +396,43 @@ export function ImportModal({
         toast.warning(t('toastTagsWarning'));
       }
 
-      setResult({ imported, skipped, failed, tagsAssigned });
+      let customValuesAssigned = 0;
+      try {
+        customValuesAssigned = await assignImportedCustomValues(
+          supabase,
+          customAssignments,
+          fieldIdByKey
+        );
+      } catch {
+        toast.warning(t('toastCustomFieldsWarning'));
+      }
+
+      setResult({
+        imported,
+        skipped,
+        failed,
+        tagsAssigned,
+        customValuesAssigned,
+      });
       if (imported > 0) {
         toast.success(t('toastImported', { count: imported }));
         onImported();
       }
       if (tagsAssigned > 0) {
         toast.success(t('toastTagsAssigned', { count: tagsAssigned }));
+      }
+      if (customValuesAssigned > 0) {
+        toast.success(
+          t('toastCustomFieldsAssigned', { count: customValuesAssigned })
+        );
+      }
+      if (skippedFieldLabels.length > 0) {
+        const sample = skippedFieldLabels.slice(0, 3).join(', ');
+        const more =
+          skippedFieldLabels.length > 3
+            ? ` (+${skippedFieldLabels.length - 3} more)`
+            : '';
+        toast.info(t('toastCustomFieldsSkipped', { sample, more }));
       }
       if (skippedNames.length > 0) {
         const sample = skippedNames.slice(0, 3).join(', ');
@@ -378,6 +463,12 @@ export function ImportModal({
   // avoiding an all-dash column that wastes horizontal space.
   const previewHasCompany =
     hasCompanyColumn && preview.some((row) => row.company?.trim());
+  // Custom fields: always show every declared `cf:` column. Unlike company,
+  // the header is an explicit opt-in, so an all-empty column is a signal
+  // worth surfacing (wrong header, or values that failed to parse).
+  const newFieldLabels = customFieldColumns
+    .filter((column) => !knownFieldKeys.has(column.key))
+    .map((column) => column.label);
 
   const tagStats = useMemo(() => {
     const names = new Set<string>();
@@ -392,21 +483,29 @@ export function ImportModal({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="flex max-h-[min(90vh,720px)] flex-col gap-0 overflow-hidden border-border/80 bg-popover p-0 text-popover-foreground sm:max-w-2xl">
-        <div className="shrink-0 space-y-4 border-b border-border/80 px-6 pt-6 pb-5">
+      <DialogContent className="border-border/80 bg-popover text-popover-foreground flex max-h-[min(90vh,720px)] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+        <div className="border-border/80 shrink-0 space-y-4 border-b px-6 pt-6 pb-5">
           <DialogHeader className="gap-1.5">
-            <DialogTitle className="text-lg text-popover-foreground">
+            <DialogTitle className="text-popover-foreground text-lg">
               {t('title')}
             </DialogTitle>
-            <DialogDescription className="leading-relaxed text-muted-foreground"
+            <DialogDescription
+              className="text-muted-foreground leading-relaxed"
               dangerouslySetInnerHTML={{
                 __html: t.markup('desc', {
-                  phoneCode: (chunks) => `<code class="rounded bg-muted px-1 py-0.5 text-[11px] text-muted-foreground">${chunks}</code>`,
-                  nameCode: (chunks) => `<code class="rounded bg-muted px-1 py-0.5 text-[11px] text-muted-foreground">${chunks}</code>`,
-                  emailCode: (chunks) => `<code class="rounded bg-muted px-1 py-0.5 text-[11px] text-muted-foreground">${chunks}</code>`,
-                  companyCode: (chunks) => `<code class="rounded bg-muted px-1 py-0.5 text-[11px] text-muted-foreground">${chunks}</code>`,
-                  tagsCode: (chunks) => `<code class="rounded bg-muted px-1 py-0.5 text-[11px] text-muted-foreground">${chunks}</code>`,
-                })
+                  phoneCode: (chunks) =>
+                    `<code class="rounded bg-muted px-1 py-0.5 text-[11px] text-muted-foreground">${chunks}</code>`,
+                  nameCode: (chunks) =>
+                    `<code class="rounded bg-muted px-1 py-0.5 text-[11px] text-muted-foreground">${chunks}</code>`,
+                  emailCode: (chunks) =>
+                    `<code class="rounded bg-muted px-1 py-0.5 text-[11px] text-muted-foreground">${chunks}</code>`,
+                  companyCode: (chunks) =>
+                    `<code class="rounded bg-muted px-1 py-0.5 text-[11px] text-muted-foreground">${chunks}</code>`,
+                  tagsCode: (chunks) =>
+                    `<code class="rounded bg-muted px-1 py-0.5 text-[11px] text-muted-foreground">${chunks}</code>`,
+                  cfCode: (chunks) =>
+                    `<code class="rounded bg-muted px-1 py-0.5 text-[11px] text-muted-foreground">${chunks}</code>`,
+                }),
               }}
             />
           </DialogHeader>
@@ -432,24 +531,24 @@ export function ImportModal({
                   <FileText className="text-primary size-5" />
                 </div>
                 <p
-                  className="max-w-full truncate px-2 text-sm font-medium text-popover-foreground"
+                  className="text-popover-foreground max-w-full truncate px-2 text-sm font-medium"
                   title={file.name}
                 >
                   {truncateFilename(file.name)}
                 </p>
-                <span className="rounded-full bg-muted px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+                <span className="bg-muted text-muted-foreground rounded-full px-2.5 py-0.5 text-[11px] font-medium">
                   {t('rowsReady', { count: parsedRows.length })}
                 </span>
               </>
             ) : (
               <>
-                <div className="flex size-10 items-center justify-center rounded-lg bg-muted/80 ring-1 ring-border/80 transition-colors group-hover:bg-muted">
-                  <Upload className="size-5 text-muted-foreground group-hover:text-foreground" />
+                <div className="bg-muted/80 ring-border/80 group-hover:bg-muted flex size-10 items-center justify-center rounded-lg ring-1 transition-colors">
+                  <Upload className="text-muted-foreground group-hover:text-foreground size-5" />
                 </div>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-muted-foreground text-sm">
                   {t('uploadDropzone')}
                 </p>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-muted-foreground text-[11px]">
                   {t('uploadHint')}
                 </p>
               </>
@@ -469,72 +568,107 @@ export function ImportModal({
           {preview.length > 0 && !result && (
             <div className="space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-[11px] font-semibold tracking-[0.14em] text-muted-foreground uppercase">
+                <p className="text-muted-foreground text-[11px] font-semibold tracking-[0.14em] uppercase">
                   {t('preview', { count: preview.length })}
                 </p>
                 <div className="flex flex-wrap items-center gap-1.5">
+                  {customFieldColumns.length > 0 && (
+                    <span className="bg-muted/90 text-muted-foreground inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px]">
+                      <ListPlus className="text-primary/80 size-3" />
+                      {t('previewCustomFields', {
+                        count: customFieldColumns.length,
+                      })}
+                    </span>
+                  )}
                   {tagStats.rowsWithTags > 0 && (
-                    <span className="inline-flex items-center gap-1 rounded-md bg-muted/90 px-2 py-0.5 text-[11px] text-muted-foreground">
+                    <span className="bg-muted/90 text-muted-foreground inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px]">
                       <Tag className="text-primary/80 size-3" />
-                      {t('previewTags', { tags: tagStats.unique, contacts: tagStats.rowsWithTags })}
+                      {t('previewTags', {
+                        tags: tagStats.unique,
+                        contacts: tagStats.rowsWithTags,
+                      })}
                     </span>
                   )}
                 </div>
               </div>
 
-              <div className="overflow-hidden rounded-xl border border-border ring-1 ring-border/50">
+              <div className="border-border ring-border/50 overflow-hidden rounded-xl border ring-1">
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[32rem] text-xs">
                     <thead>
-                      <tr className="border-b border-border bg-background/60">
-                        <th className="px-3 py-2 text-left font-medium whitespace-nowrap text-muted-foreground">
+                      <tr className="border-border bg-background/60 border-b">
+                        <th className="text-muted-foreground px-3 py-2 text-left font-medium whitespace-nowrap">
                           {t('columns.phone')}
                         </th>
-                        <th className="px-3 py-2 text-left font-medium whitespace-nowrap text-muted-foreground">
+                        <th className="text-muted-foreground px-3 py-2 text-left font-medium whitespace-nowrap">
                           {t('columns.name')}
                         </th>
-                        <th className="px-3 py-2 text-left font-medium whitespace-nowrap text-muted-foreground">
+                        <th className="text-muted-foreground px-3 py-2 text-left font-medium whitespace-nowrap">
                           {t('columns.email')}
                         </th>
                         {previewHasCompany && (
-                          <th className="px-3 py-2 text-left font-medium whitespace-nowrap text-muted-foreground">
+                          <th className="text-muted-foreground px-3 py-2 text-left font-medium whitespace-nowrap">
                             {t('columns.company')}
                           </th>
                         )}
                         {previewHasTags && (
-                          <th className="px-3 py-2 text-left font-medium whitespace-nowrap text-muted-foreground">
+                          <th className="text-muted-foreground px-3 py-2 text-left font-medium whitespace-nowrap">
                             {t('columns.tags')}
                           </th>
                         )}
+                        {customFieldColumns.map((column) => (
+                          <th
+                            key={column.key}
+                            className="text-muted-foreground px-3 py-2 text-left font-medium whitespace-nowrap"
+                            title={
+                              knownFieldKeys.has(column.key)
+                                ? column.label
+                                : t('fieldWillBeCreated', {
+                                    name: column.label,
+                                  })
+                            }
+                          >
+                            <span className="inline-flex items-center gap-1">
+                              <span className="max-w-[8rem] truncate">
+                                {column.label}
+                              </span>
+                              {!knownFieldKeys.has(column.key) && (
+                                <span className="text-primary/80 text-[13px] leading-none">
+                                  +
+                                </span>
+                              )}
+                            </span>
+                          </th>
+                        ))}
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-border/70">
+                    <tbody className="divide-border/70 divide-y">
                       {preview.map((row, i) => (
                         <tr
                           key={i}
-                          className="bg-popover/40 transition-colors hover:bg-muted/30"
+                          className="bg-popover/40 hover:bg-muted/30 transition-colors"
                         >
-                          <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">
+                          <td className="text-muted-foreground px-3 py-2 whitespace-nowrap">
                             <PreviewCell
                               value={row.phone}
                               mono
                               maxWidth="max-w-[7.5rem]"
                             />
                           </td>
-                          <td className="px-3 py-2 text-popover-foreground">
+                          <td className="text-popover-foreground px-3 py-2">
                             <PreviewCell
                               value={row.name || '—'}
                               maxWidth="max-w-[8.5rem]"
                             />
                           </td>
-                          <td className="px-3 py-2 text-muted-foreground">
+                          <td className="text-muted-foreground px-3 py-2">
                             <PreviewCell
                               value={row.email || '—'}
                               maxWidth="max-w-[10rem]"
                             />
                           </td>
                           {previewHasCompany && (
-                            <td className="px-3 py-2 text-muted-foreground">
+                            <td className="text-muted-foreground px-3 py-2">
                               <PreviewCell
                                 value={row.company || '—'}
                                 maxWidth="max-w-[7rem]"
@@ -549,6 +683,17 @@ export function ImportModal({
                               />
                             </td>
                           )}
+                          {customFieldColumns.map((column) => (
+                            <td
+                              key={column.key}
+                              className="text-muted-foreground px-3 py-2"
+                            >
+                              <PreviewCell
+                                value={row.customValues[column.key] || '—'}
+                                maxWidth="max-w-[8rem]"
+                              />
+                            </td>
+                          ))}
                         </tr>
                       ))}
                     </tbody>
@@ -556,8 +701,14 @@ export function ImportModal({
                 </div>
               </div>
 
+              {newFieldLabels.length > 0 && (
+                <p className="text-muted-foreground text-[11px]">
+                  {t('newFieldsNote', { names: newFieldLabels.join(', ') })}
+                </p>
+              )}
+
               {parsedRows.length > PREVIEW_LIMIT && (
-                <p className="text-center text-[11px] text-muted-foreground">
+                <p className="text-muted-foreground text-center text-[11px]">
                   {t('moreRows', { count: parsedRows.length - PREVIEW_LIMIT })}
                 </p>
               )}
@@ -565,8 +716,10 @@ export function ImportModal({
           )}
 
           {result && (
-            <div className="rounded-xl border border-border bg-background/50 p-4">
-              <p className="text-sm font-medium text-popover-foreground">{t('importComplete')}</p>
+            <div className="border-border bg-background/50 rounded-xl border p-4">
+              <p className="text-popover-foreground text-sm font-medium">
+                {t('importComplete')}
+              </p>
               <div className="mt-3 flex flex-wrap gap-3">
                 {result.imported > 0 && (
                   <div className="text-primary flex items-center gap-1.5 text-sm">
@@ -578,6 +731,14 @@ export function ImportModal({
                   <div className="flex items-center gap-1.5 text-sm text-cyan-400">
                     <CheckCircle className="size-4 shrink-0" />
                     {t('resultTags', { count: result.tagsAssigned })}
+                  </div>
+                )}
+                {result.customValuesAssigned > 0 && (
+                  <div className="flex items-center gap-1.5 text-sm text-cyan-400">
+                    <CheckCircle className="size-4 shrink-0" />
+                    {t('resultCustomFields', {
+                      count: result.customValuesAssigned,
+                    })}
                   </div>
                 )}
                 {result.skipped > 0 && (
@@ -597,7 +758,7 @@ export function ImportModal({
           )}
         </div>
 
-        <DialogFooter className="mt-0 shrink-0 gap-2 border-t border-border/80 bg-background/50 px-6 py-4 sm:justify-end">
+        <DialogFooter className="border-border/80 bg-background/50 mt-0 shrink-0 gap-2 border-t px-6 py-4 sm:justify-end">
           <Button
             type="button"
             variant="outline"
@@ -614,7 +775,9 @@ export function ImportModal({
               className="bg-primary hover:bg-primary/90 text-primary-foreground"
             >
               {importing && <Loader2 className="size-4 animate-spin" />}
-              {parsedRows.length > 0 ? t('importBtn', { count: parsedRows.length }) : t('importBtn', { count: 0 })}
+              {parsedRows.length > 0
+                ? t('importBtn', { count: parsedRows.length })
+                : t('importBtn', { count: 0 })}
             </Button>
           )}
         </DialogFooter>
